@@ -1,0 +1,24 @@
+# docker compose up -d 로 MySQL·Redis 실행 (Docker Desktop 설치 필요)
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: visit-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-visit1234}
+      MYSQL_DATABASE: ${DB_NAME:-visit_db}
+      TZ: Asia/Seoul
+    ports:
+      - "${DB_PORT:-3306}:3306"
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - mysql-data:/var/lib/mysql
+
+  # 3주차 Redis 분산 락 비교용
+  redis:
+    image: redis:7
+    container_name: visit-redis
+    ports:
+      - "6379:6379"
+
+volumes:
+  mysql-data:

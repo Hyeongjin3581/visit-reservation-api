@@ -1,0 +1,19 @@
+spring:
+  application:
+    name: visit-reservation-api
+
+  # 로컬 MySQL 기준. 접속 정보는 환경 변수로 넣고, 없으면 기본값 사용 (.env.example 참고)
+  datasource:
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:visit_db}?createDatabaseIfNotExist=true&serverTimezone=Asia/Seoul
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:}
+
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        format_sql: true
+        # 2주차 N+1 측정 때 true 로 바꿔 쿼리 수 확인
+        generate_statistics: false
