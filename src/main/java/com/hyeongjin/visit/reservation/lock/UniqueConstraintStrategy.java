@@ -3,8 +3,8 @@ package com.hyeongjin.visit.reservation.lock;
 import java.util.List;
 
 import com.hyeongjin.visit.reservation.domain.Reservation;
+import com.hyeongjin.visit.reservation.service.ConfirmLock;
 import com.hyeongjin.visit.reservation.service.ReservationWriter;
-import jakarta.persistence.LockModeType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -23,11 +23,11 @@ public class UniqueConstraintStrategy implements ReservationLockStrategy {
 
     @Override
     public Reservation confirm(Long visitRequestId, Long caregiverId) {
-        return writer.confirm(visitRequestId, caregiverId, LockModeType.NONE);
+        return writer.confirm(visitRequestId, caregiverId, ConfirmLock.NONE);
     }
 
     @Override
     public List<Reservation> confirmGroup(Long groupId, Long caregiverId) {
-        return writer.confirmGroup(groupId, caregiverId, LockModeType.NONE);
+        return writer.confirmGroup(groupId, caregiverId, ConfirmLock.NONE);
     }
 }

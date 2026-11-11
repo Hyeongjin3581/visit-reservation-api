@@ -16,7 +16,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
-// 같은 보호사에게 동시에 100건의 확정 요청 → 방법 A·B·C 비교 (D 는 RedissonConcurrencyTest)
+// 같은 보호사에게 동시에 100건의 확정 요청 → 방법 A·B·B'·C 비교 (D 는 RedissonConcurrencyTest, 락 범위 차이는 LockScopeTest)
 // 결과는 [동시성] 줄로 출력해서 README 표에 옮김
 @Tag("concurrency")
 @SpringBootTest
@@ -31,7 +31,7 @@ class ReservationConcurrencyTest extends ConcurrencyTestSupport {
     }
 
     @ParameterizedTest(name = "{0}")
-    @ValueSource(strings = {"unique", "pessimistic", "optimistic"})
+    @ValueSource(strings = {"unique", "pessimistic", "pessimistic-caregiver", "optimistic"})
     void 같은_시작_시간_100건은_모든_방법에서_1건만_성공(String name) throws Exception {
         Caregiver caregiver = caregiver("김보호");
         List<Long> requestIds = sameSlotRequests();
@@ -44,7 +44,7 @@ class ReservationConcurrencyTest extends ConcurrencyTestSupport {
     }
 
     @ParameterizedTest(name = "{0}")
-    @ValueSource(strings = {"pessimistic", "optimistic"})
+    @ValueSource(strings = {"pessimistic", "pessimistic-caregiver", "optimistic"})
     void 시작_시간이_다른_겹침_100건도_락을_쓰면_1건만_성공(String name) throws Exception {
         Caregiver caregiver = caregiver("김보호");
         List<Long> requestIds = overlappingRequests();

@@ -7,6 +7,7 @@ import com.hyeongjin.visit.caregiver.repository.CaregiverRepository;
 import com.hyeongjin.visit.recipient.repository.RecipientRepository;
 import com.hyeongjin.visit.request.repository.VisitRequestGroupRepository;
 import com.hyeongjin.visit.request.repository.VisitRequestRepository;
+import com.hyeongjin.visit.reservation.repository.CaregiverDayLockRepository;
 import com.hyeongjin.visit.reservation.repository.ReservationRepository;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -27,6 +28,7 @@ class SampleDataSeederTest {
     @Autowired private VisitRequestRepository visitRequestRepository;
     @Autowired private VisitRequestGroupRepository visitRequestGroupRepository;
     @Autowired private ReservationRepository reservationRepository;
+    @Autowired private CaregiverDayLockRepository caregiverDayLockRepository;
 
     @AfterEach
     void cleanUp() {
@@ -35,6 +37,8 @@ class SampleDataSeederTest {
         // visit_request.group_id 가 묶음을 가리키므로 요청을 지운 다음에 지움
         visitRequestGroupRepository.deleteAllInBatch();
         availabilityRepository.deleteAllInBatch();
+        // caregiver_day_lock.caregiver_id 가 보호사를 가리키므로 보호사보다 먼저 지움
+        caregiverDayLockRepository.deleteAllInBatch();
         caregiverRepository.deleteAllInBatch();
         recipientRepository.deleteAllInBatch();
     }

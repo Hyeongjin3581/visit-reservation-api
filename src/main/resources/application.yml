@@ -18,7 +18,7 @@ spring:
         # 2주차 N+1 측정 때 true 로 바꿔 쿼리 수 확인
         generate_statistics: false
 
-# 예약 확정 동시성 제어 방법: unique(A) / pessimistic(B, 기본) / optimistic(C) / redisson(D)
+# 예약 확정 동시성 제어 방법: unique(A) / pessimistic(B, 기본) / pessimistic-caregiver(B', 비교용) / optimistic(C) / redisson(D)
 reservation:
   lock:
     strategy: ${RESERVATION_LOCK_STRATEGY:pessimistic}

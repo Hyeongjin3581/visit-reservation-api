@@ -6,8 +6,8 @@ import java.util.function.Supplier;
 import com.hyeongjin.visit.common.exception.BusinessException;
 import com.hyeongjin.visit.common.exception.ErrorCode;
 import com.hyeongjin.visit.reservation.domain.Reservation;
+import com.hyeongjin.visit.reservation.service.ConfirmLock;
 import com.hyeongjin.visit.reservation.service.ReservationWriter;
-import jakarta.persistence.LockModeType;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.ConcurrencyFailureException;
@@ -32,13 +32,13 @@ public class OptimisticLockStrategy implements ReservationLockStrategy {
 
     @Override
     public Reservation confirm(Long visitRequestId, Long caregiverId) {
-        return retry(() -> writer.confirm(visitRequestId, caregiverId, LockModeType.OPTIMISTIC_FORCE_INCREMENT));
+        return retry(() -> writer.confirm(visitRequestId, caregiverId, ConfirmLock.CAREGIVER_VERSION));
     }
 
     // 묶음이 충돌하면 묶음 전체를 새 트랜잭션으로 다시 시도 (앞 시도는 통째로 롤백됐으므로 부분 저장 없음)
     @Override
     public List<Reservation> confirmGroup(Long groupId, Long caregiverId) {
-        return retry(() -> writer.confirmGroup(groupId, caregiverId, LockModeType.OPTIMISTIC_FORCE_INCREMENT));
+        return retry(() -> writer.confirmGroup(groupId, caregiverId, ConfirmLock.CAREGIVER_VERSION));
     }
 
     private <T> T retry(Supplier<T> action) {

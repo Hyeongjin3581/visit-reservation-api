@@ -40,7 +40,7 @@ class GroupReservationConcurrencyTest extends ConcurrencyTestSupport {
     }
 
     @ParameterizedTest(name = "{0}")
-    @ValueSource(strings = {"pessimistic", "optimistic"})
+    @ValueSource(strings = {"pessimistic", "pessimistic-caregiver", "optimistic"})
     void 서로_겹치는_묶음_21개를_동시에_확정하면_1개만_성공하고_부분_저장이_없다(String name) throws Exception {
         Caregiver caregiver = allWeekCaregiver("김보호");
         List<Long> groupIds = overlappingGroups(GROUPS);
@@ -56,7 +56,7 @@ class GroupReservationConcurrencyTest extends ConcurrencyTestSupport {
 
     // 묶음(3일)과 그 둘째 날에 겹치는 단건 50개를 같은 보호사로 동시에 확정
     @ParameterizedTest(name = "{0}")
-    @ValueSource(strings = {"pessimistic", "optimistic"})
+    @ValueSource(strings = {"pessimistic", "pessimistic-caregiver", "optimistic"})
     void 묶음과_겹치는_단건이_동시에_와도_겹침이_없고_묶음은_전부_아니면_전무(String name) throws Exception {
         Caregiver caregiver = allWeekCaregiver("김보호");
         Recipient recipient = recipientRepository.save(Recipient.create("박수급", null, 37.5665, 126.9780));

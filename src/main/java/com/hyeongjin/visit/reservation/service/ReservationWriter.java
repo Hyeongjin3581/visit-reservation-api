@@ -20,6 +20,7 @@ import com.hyeongjin.visit.request.domain.VisitRequest;
 import com.hyeongjin.visit.request.repository.VisitRequestRepository;
 import com.hyeongjin.visit.reservation.domain.Reservation;
 import com.hyeongjin.visit.reservation.domain.ReservationStatus;
+import com.hyeongjin.visit.reservation.repository.CaregiverDayLockRepository;
 import com.hyeongjin.visit.reservation.repository.ReservationRepository;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
@@ -30,7 +31,7 @@ import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 // 예약 확정·취소를 트랜잭션 하나로 처리하는 곳
-// 락 전략 4개가 모두 이 confirm / confirmGroup 을 호출하고, 차이는 "보호사 행을 어떤 락 모드로 읽느냐"와 "트랜잭션 바깥에서 무엇을 하느냐"뿐
+// 락 전략이 모두 이 confirm / confirmGroup 을 호출하고, 차이는 "트랜잭션 안에서 무엇을 잠그느냐(ConfirmLock)"와 "트랜잭션 바깥에서 무엇을 하느냐"뿐
 @Component
 @RequiredArgsConstructor
 public class ReservationWriter {
@@ -39,6 +40,7 @@ public class ReservationWriter {
     private final VisitRequestRepository visitRequestRepository;
     private final CaregiverAvailabilityRepository availabilityRepository;
     private final ReservationRepository reservationRepository;
+    private final CaregiverDayLockRepository dayLockRepository;
     private final WorkingHoursFilter workingHoursFilter;
     private final ScheduleConflictFilter scheduleConflictFilter;
 
@@ -48,40 +50,49 @@ public class ReservationWriter {
     // 앞사람이 방금 커밋한 예약을 겹침 검사에서 못 봄 → 비관적 락을 써도 겹친 예약이 들어감.
     // READ COMMITTED 는 SELECT 마다 최신 커밋을 보므로 락을 얻은 뒤의 조회가 앞사람의 예약을 봄.
     @Transactional(isolation = Isolation.READ_COMMITTED)
-    public Reservation confirm(Long visitRequestId, Long caregiverId, LockModeType caregiverLock) {
+    public Reservation confirm(Long visitRequestId, Long caregiverId, ConfirmLock lock) {
         VisitRequest request = visitRequestRepository.findWithRecipientById(visitRequestId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.VISIT_REQUEST_NOT_FOUND));
-        return confirmAll(List.of(request), caregiverId, caregiverLock).get(0);
+        return confirmAll(List.of(request), caregiverId, lock).get(0);
     }
 
     // 묶음 일괄 확정: 트랜잭션 하나 → 한 날짜라도 실패하면 전부 롤백 (부분 배정이 남지 않음)
     // READ COMMITTED 를 단건과 똑같이 명시 (빠뜨리면 MySQL 에서 위의 스냅샷 문제가 묶음 경로로 다시 생김)
     @Transactional(isolation = Isolation.READ_COMMITTED)
-    public List<Reservation> confirmGroup(Long groupId, Long caregiverId, LockModeType caregiverLock) {
+    public List<Reservation> confirmGroup(Long groupId, Long caregiverId, ConfirmLock lock) {
         List<VisitRequest> requests = visitRequestRepository.findAllWithRecipientByGroupId(groupId);
         if (requests.isEmpty()) {
             throw new BusinessException(ErrorCode.VISIT_REQUEST_GROUP_NOT_FOUND);
         }
-        return confirmAll(requests, caregiverId, caregiverLock);
+        return confirmAll(requests, caregiverId, lock);
     }
 
     // 단건·묶음 공통 확정 로직
     // @Transactional 을 붙이지 않음: 같은 클래스 안에서 부르면 프록시를 거치지 않아 어차피 적용되지 않고,
     // 호출한 confirm / confirmGroup 의 READ COMMITTED 트랜잭션 안에서 실행됨
-    private List<Reservation> confirmAll(List<VisitRequest> requests, Long caregiverId, LockModeType caregiverLock) {
+    private List<Reservation> confirmAll(List<VisitRequest> requests, Long caregiverId, ConfirmLock lock) {
         if (!requests.stream().allMatch(VisitRequest::isAssignable)) {
             throw new BusinessException(ErrorCode.VISIT_REQUEST_NOT_ASSIGNABLE);
         }
 
-        // 날짜가 몇 개든 보호사 락은 한 번
-        // NONE: 일반 조회 / PESSIMISTIC_WRITE: SELECT ... FOR UPDATE / OPTIMISTIC_FORCE_INCREMENT: 커밋 때 version + 1
-        Caregiver caregiver = em.find(Caregiver.class, caregiverId, caregiverLock);
+        // 보호사 행: CAREGIVER_ROW 는 SELECT ... FOR UPDATE, CAREGIVER_VERSION 은 커밋 때 version + 1, 나머지는 일반 조회
+        // 날짜가 몇 개든 보호사 행 락은 한 번
+        Caregiver caregiver = em.find(Caregiver.class, caregiverId, switch (lock) {
+            case CAREGIVER_ROW -> LockModeType.PESSIMISTIC_WRITE;
+            case CAREGIVER_VERSION -> LockModeType.OPTIMISTIC_FORCE_INCREMENT;
+            case NONE, CAREGIVER_DAY -> LockModeType.NONE;
+        });
         if (caregiver == null) {
             throw new BusinessException(ErrorCode.CAREGIVER_NOT_FOUND);
+        }
+        if (lock == ConfirmLock.CAREGIVER_DAY) {
+            lockDays(caregiverId, requests);
         }
 
         // 추천 때 통과했어도 확정 직전에 다시 확인 (온케어는 고른 날짜를 다시 검증하지 않았음)
         // 묶음의 하위 요청은 모두 같은 수급자
+        // CAREGIVER_DAY 는 보호사 행을 잠그지 않으므로 이 상태 확인은 확정 중 상태 변경과 직렬화되지 않음
+        // (지금은 보호사 상태를 바꾸는 API 가 없음. 생기면 다시 볼 것)
         Recipient recipient = requests.get(0).getRecipient();
         if (!caregiver.isActive() || !recipient.accepts(caregiver.getGender())) {
             throw new BusinessException(ErrorCode.CAREGIVER_NOT_AVAILABLE);
@@ -134,6 +145,15 @@ public class ReservationWriter {
             reservation.getVisitRequest().unassign();
         });
         return active;
+    }
+
+    // (보호사, 날짜) 잠금 행을 날짜 오름차순으로 한 행씩 잠금
+    // 모든 트랜잭션이 같은 순서로 잡으므로, 날짜 조합이 다른 묶음끼리 서로 기다리는 데드락이 생기지 않음
+    private void lockDays(Long caregiverId, List<VisitRequest> requests) {
+        requests.stream().map(VisitRequest::getVisitDate).sorted().distinct().forEach(date ->
+                dayLockRepository.findForUpdate(caregiverId, date).orElseThrow(() ->
+                        // 잠글 행이 없으면 락 없이 진행하게 되므로 조용히 넘어가지 않음
+                        new IllegalStateException("잠금 행이 없습니다. CaregiverDayLocks.prepare 를 먼저 호출해야 합니다")));
     }
 
     // 요일·날짜 목록으로 한 번씩 조회 (단건이면 목록 크기 1)

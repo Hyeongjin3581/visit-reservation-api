@@ -11,8 +11,8 @@ import com.hyeongjin.visit.common.exception.ErrorCode;
 import com.hyeongjin.visit.request.domain.VisitRequest;
 import com.hyeongjin.visit.request.repository.VisitRequestRepository;
 import com.hyeongjin.visit.reservation.domain.Reservation;
+import com.hyeongjin.visit.reservation.service.ConfirmLock;
 import com.hyeongjin.visit.reservation.service.ReservationWriter;
-import jakarta.persistence.LockModeType;
 import lombok.RequiredArgsConstructor;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
@@ -56,7 +56,7 @@ public class RedissonLockStrategy implements ReservationLockStrategy {
             throw new BusinessException(ErrorCode.RESERVATION_BUSY);
         }
         try {
-            return writer.confirm(visitRequestId, caregiverId, LockModeType.NONE);
+            return writer.confirm(visitRequestId, caregiverId, ConfirmLock.NONE);
         } finally {
             lock.unlock();
         }
@@ -84,7 +84,7 @@ public class RedissonLockStrategy implements ReservationLockStrategy {
                 }
                 acquired.add(lock);
             }
-            return writer.confirmGroup(groupId, caregiverId, LockModeType.NONE);
+            return writer.confirmGroup(groupId, caregiverId, ConfirmLock.NONE);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new BusinessException(ErrorCode.RESERVATION_BUSY);

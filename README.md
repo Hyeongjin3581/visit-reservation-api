@@ -39,7 +39,7 @@ $env:DB_PASSWORD="내 MySQL 비밀번호"
 ```
 
 - Swagger UI: http://localhost:8080/swagger-ui.html
-- 락 전략 바꾸기: `$env:RESERVATION_LOCK_STRATEGY="optimistic"` (unique / pessimistic / optimistic / redisson)
+- 락 전략 바꾸기: `$env:RESERVATION_LOCK_STRATEGY="optimistic"` (unique / pessimistic / pessimistic-caregiver / optimistic / redisson)
 - Redis 분산 락: `$env:REDIS_ENABLED="true"`, `$env:RESERVATION_LOCK_STRATEGY="redisson"` (Redis 127.0.0.1:6379 필요, `docker compose up -d redis`로도 띄울 수 있음)
 
 > 1주차 버전으로 만든 로컬 DB가 있으면 예약 테이블의 옛 유니크 제약(`uk_reservation_caregiver_slot`)이 남아 있을 수 있습니다. `ddl-auto: update`는 제약을 지우지 않으므로 `visit_db`를 지우고 다시 만들거나 그 제약을 직접 지워야 합니다.
@@ -100,7 +100,7 @@ k6 run -e STRATEGY=pessimistic k6/reservation.js     # 예약 확정 처리량 (
 필터(`CandidateFilter`)와 점수 항목(`ScorePolicy`)은 구현체로 나뉘어 있어서, 항목을 추가해도 서비스 코드는 바뀌지 않습니다.
 
 ### 예약 확정 방식
-1. 설정한 락 전략으로 보호사를 잠금 (기본: 비관적 락)
+1. 설정한 락 전략으로 잠금 (기본: 비관적 락, (보호사, 날짜) 잠금 행 → 같은 보호사라도 다른 날짜 확정은 기다리지 않음)
 2. 추천 때와 같은 필터로 다시 검증 (근무 상태, 성별, 근무 가능 시간, 겹치는 예약)
 3. 예약 저장 + 방문 요청 `ASSIGNED`
 4. 같은 시작 시간 중복은 DB 유니크 제약이 한 번 더 막음
@@ -118,7 +118,8 @@ k6 run -e STRATEGY=pessimistic k6/reservation.js     # 예약 확정 처리량 (
 | 방법 | 같은 시작 시간 100건 | 시작 시간 다른 겹침 100건 | 특징 |
 |---|---|---|---|
 | A. 유니크 제약만 | 1건 성공 | 4~5건 성공 (겹침 6~10쌍) | 가장 빠르고 단순하지만 겹침을 못 막음 |
-| B. 비관적 락 (`SELECT ... FOR UPDATE`) | 1건 | 1건 | 같은 보호사 요청을 줄 세움. 기다리는 동안 DB 커넥션 점유 |
+| B. 비관적 락 (`SELECT ... FOR UPDATE`, (보호사, 날짜) 잠금 행) | 1건 | 1건 | 같은 보호사·같은 날짜 요청만 줄 세움. 기다리는 동안 DB 커넥션 점유 |
+| B'. 비관적 락 (보호사 행, 범위 축소 전 · 비교용 `pessimistic-caregiver`) | 1건 | 1건 | 같은 보호사면 날짜가 달라도 줄 섬 |
 | C. 낙관적 락 (`@Version` + 재시도) | 1건 | 1건 | 충돌이 적으면 유리. 충돌이 잦으면 재시도 비용 |
 | D. Redis 분산 락 (Redisson) | 1건 | 1건 | 서버가 여러 대여도 동작. Redis 운영 부담 추가 |
 
@@ -127,6 +128,12 @@ k6 run -e STRATEGY=pessimistic k6/reservation.js     # 예약 확정 처리량 (
 **MySQL에서 발견한 문제: 비관적 락을 써도 겹침이 들어감** 처음에는 H2에서만 테스트해서 B가 통과했는데, CI의 MySQL에서는 B도 겹친 예약이 들어갔습니다. 원인은 격리 수준 차이였습니다. MySQL 기본(REPEATABLE READ)은 트랜잭션의 첫 SELECT 시점에 읽기 스냅샷을 고정합니다. 확정 코드가 방문 요청을 먼저 읽고 나서 보호사 락을 기다렸기 때문에, 락을 얻은 뒤의 겹침 검사가 옛 스냅샷을 읽어 앞사람이 방금 커밋한 예약을 못 봤습니다. H2 기본(READ COMMITTED)에서는 드러나지 않았습니다. 확정 트랜잭션을 `READ COMMITTED`로 명시해서 고쳤고, H2 테스트도 REPEATABLE READ로 돌게 바꿔 같은 실수를 로컬에서 잡을 수 있게 했습니다. (수정 전 H2·REPEATABLE READ 재현: B 5건 성공, 겹침 10쌍 → 수정 후 1건)
 
 **선택** 기본값은 B(비관적 락) + A(유니크 제약, 마지막 안전장치)입니다. 서버 1대 기준으로 추가 인프라 없이 겹침까지 막고, 재시도 로직이 필요 없습니다. 서버를 늘리면 D로 바꿀 수 있게 `reservation.lock.strategy` 설정 하나로 전략을 고르게 했습니다.
+
+**락 범위 축소** 처음 B는 보호사 행을 잠가서, 같은 보호사의 다른 날짜 확정끼리도 기다렸습니다. 겹침은 같은 날짜 안에서만 생기므로 `(보호사, 날짜)`마다 잠금 전용 행(`caregiver_day_lock`)을 두고 그 행을 잠그게 바꿨습니다.
+- 예약 행 대신 따로 둔 이유: 예약이 0건인 날짜도 잠글 수 있어야 합니다. 확정 트랜잭션은 READ COMMITTED라 갭 락이 없어서, 없는 행을 `FOR UPDATE`로 읽으면 아무것도 잠기지 않습니다.
+- 잠금 행은 확정 트랜잭션 **밖**에서 미리 만듭니다. 안에서 새 트랜잭션으로 만들면 요청 하나가 커넥션을 2개 쥐어, 동시 요청이 풀보다 많을 때 모두 멈춥니다.
+- 묶음은 날짜 오름차순으로 한 행씩 잠가 묶음끼리의 데드락을 막습니다.
+- 확인: `LockScopeTest`가 한 스레드에 D1 락을 쥐게 하고, 같은 보호사의 D2 확정은 바로 끝나고 D1 확정은 기다리는지 봅니다. 예전 방식(`pessimistic-caregiver`)은 D2도 기다립니다. 처리량 차이는 k6로 잴 예정입니다.
 
 **함께 막은 것**
 - 같은 요청을 서로 다른 보호사로 동시에 배정: 보호사 락으로는 서로 안 막혀서 `VisitRequest`에 `@Version`을 두었습니다. 10건 동시 → 1건 성공. (H2에서는 나머지가 버전 충돌로, MySQL에서는 대부분 락 획득 실패로 거절됨. 둘 다 409 `CONCURRENT_MODIFICATION`)
@@ -150,7 +157,7 @@ k6 run -e STRATEGY=pessimistic k6/reservation.js     # 예약 확정 처리량 (
 ## 한계와 남은 일
 
 - k6 스크립트(`k6/`)는 준비했지만 아직 실행해서 수치를 기록하지 않았습니다. 배포(EC2)도 하지 않았습니다.
-- 비관적 락은 보호사 단위라서 같은 보호사의 다른 날짜 예약끼리도 기다립니다.
+- 비관적 락은 (보호사, 날짜) 단위로 줄였지만, 확정 1건마다 잠금 행 확인 쿼리가 2~3개 늘어납니다. 낙관적 락(C)은 아직 보호사 단위입니다.
 - 묶음 신청은 모든 날짜가 같은 시간대이고 같은 보호사일 때만 지원합니다. 날짜별 시간대, 날짜별로 다른 보호사 배정은 하지 않습니다.
 
 ## 문서
