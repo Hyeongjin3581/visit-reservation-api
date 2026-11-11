@@ -3,6 +3,9 @@ spring:
     url: jdbc:h2:mem:visit_test;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1;LOCK_TIMEOUT=10000
     username: sa
     password:
+    # H2 기본은 READ COMMITTED 지만 MySQL 기본은 REPEATABLE READ → 동시성 테스트가 MySQL 과 같은 조건에서 돌도록 맞춤
+    hikari:
+      transaction-isolation: TRANSACTION_REPEATABLE_READ
 
   jpa:
     open-in-view: false

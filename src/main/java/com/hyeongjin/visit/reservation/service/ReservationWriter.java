@@ -20,6 +20,7 @@ import jakarta.persistence.LockModeType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 // 예약 확정·취소를 트랜잭션 하나로 처리하는 곳
@@ -35,7 +36,12 @@ public class ReservationWriter {
     private final WorkingHoursFilter workingHoursFilter;
     private final ScheduleConflictFilter scheduleConflictFilter;
 
-    @Transactional
+    // READ COMMITTED 를 명시한 이유 (CI 의 MySQL 테스트에서 발견):
+    // MySQL 기본(REPEATABLE READ)은 트랜잭션의 첫 SELECT 시점에 읽기 스냅샷을 고정함.
+    // 아래에서 방문 요청을 먼저 읽고 나서 보호사 락을 기다리면, 락을 얻은 뒤에도 스냅샷이 옛날 것이라
+    // 앞사람이 방금 커밋한 예약을 겹침 검사에서 못 봄 → 비관적 락을 써도 겹친 예약이 들어감.
+    // READ COMMITTED 는 SELECT 마다 최신 커밋을 보므로 락을 얻은 뒤의 조회가 앞사람의 예약을 봄.
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public Reservation confirm(Long visitRequestId, Long caregiverId, LockModeType caregiverLock) {
         VisitRequest request = visitRequestRepository.findWithRecipientById(visitRequestId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.VISIT_REQUEST_NOT_FOUND));
