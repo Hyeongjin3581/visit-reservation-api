@@ -16,6 +16,8 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.Version;
+import org.hibernate.annotations.ColumnDefault;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -47,6 +49,13 @@ public class VisitRequest extends BaseTimeEntity {
     @Column(nullable = false, length = 20)
     private VisitRequestStatus status;
 
+    // 같은 요청을 두 관리자가 서로 다른 보호사로 동시에 배정하는 경우를 막음 (온케어 assignCareworker 의 빈틈)
+    // 둘 다 REQUESTED 를 보고 assign() 해도, 늦게 커밋하는 쪽은 버전 불일치로 실패
+    @Version
+    @ColumnDefault("0")
+    @Column(nullable = false)
+    private Long version;
+
     private VisitRequest(Recipient recipient, LocalDate visitDate, LocalTime startTime, LocalTime endTime) {
         this.recipient = recipient;
         this.visitDate = visitDate;
@@ -64,9 +73,13 @@ public class VisitRequest extends BaseTimeEntity {
         return status == VisitRequestStatus.REQUESTED;
     }
 
-    // 3주차 예약 확정에서 사용
     public void assign() {
         this.status = VisitRequestStatus.ASSIGNED;
+    }
+
+    // 배정된 예약이 취소되면 다시 배정을 기다리는 상태로
+    public void unassign() {
+        this.status = VisitRequestStatus.REQUESTED;
     }
 
     public void cancel() {

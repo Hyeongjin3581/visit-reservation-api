@@ -22,6 +22,8 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
 	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+	implementation 'org.redisson:redisson:4.6.1'   // 방법 D: Redis 분산 락 (reservation.redis.enabled=true 일 때만 사용)
+	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.1.1'   // Swagger UI (/swagger-ui.html)
 	compileOnly 'org.projectlombok:lombok'
 	runtimeOnly 'com.mysql:mysql-connector-j'
 	annotationProcessor 'org.projectlombok:lombok'
@@ -34,6 +36,24 @@ dependencies {
 	testAnnotationProcessor 'org.projectlombok:lombok'
 }
 
+// 기본 테스트: H2 로 전체 실행 (응답 시간 측정은 오래 걸려서 제외, -Pperf 를 주면 포함)
 tasks.named('test') {
-	useJUnitPlatform()
+	useJUnitPlatform {
+		if (!project.hasProperty('perf')) {
+			excludeTags 'perf'
+		}
+	}
+}
+
+// MySQL 에서 동시성·응답 시간 테스트 실행 (로컬 MySQL 또는 CI 의 MySQL 컨테이너, DB_PASSWORD 환경 변수 필요)
+tasks.register('mysqlTest', Test) {
+	description = 'MySQL 에서 동시성·성능 테스트를 실행합니다.'
+	group = 'verification'
+	testClassesDirs = sourceSets.test.output.classesDirs
+	classpath = sourceSets.test.runtimeClasspath
+	useJUnitPlatform {
+		includeTags 'concurrency', 'perf'
+	}
+	systemProperty 'spring.profiles.active', 'mysql'
+	shouldRunAfter tasks.named('test')
 }

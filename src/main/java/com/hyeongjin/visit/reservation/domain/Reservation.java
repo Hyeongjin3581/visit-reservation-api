@@ -24,16 +24,16 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-// 확정된 배정. 3주차에 동시성 제어 방법 A~D 를 비교하는 핵심 엔티티
+// 확정된 배정
 @Entity
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @Table(
-        // 방법 A: 같은 보호사 · 같은 날짜 · 같은 시작 시간 예약은 DB 에서 하나만 허용
-        // TODO(3주차): 취소된 예약도 슬롯을 차지함 → 취소 후 재예약 처리 방법 결정 (README 한계 항목)
+        // 방법 A: 같은 보호사 · 같은 날짜 · 같은 시작 시간의 "살아 있는" 예약은 DB 에서 하나만 허용
+        // 취소하면 activeSlot 을 NULL 로 바꿈 → 유니크 인덱스는 NULL 끼리 중복으로 보지 않으므로 같은 슬롯에 다시 예약 가능
         uniqueConstraints = @UniqueConstraint(
-                name = "uk_reservation_caregiver_slot",
-                columnNames = {"caregiver_id", "visit_date", "start_time"}),
+                name = "uk_reservation_active_slot",
+                columnNames = {"caregiver_id", "visit_date", "start_time", "active_slot"}),
         indexes = {
                 @Index(name = "idx_reservation_caregiver_date", columnList = "caregiver_id, visit_date"),
                 @Index(name = "idx_reservation_visit_request", columnList = "visit_request_id")
@@ -66,7 +66,12 @@ public class Reservation extends BaseTimeEntity {
     @Column(nullable = false, length = 20)
     private ReservationStatus status;
 
-    // 방법 C: 낙관적 락
+    // 유니크 제약 전용 칸: 살아 있는 예약은 TRUE, 취소된 예약은 NULL
+    @Column(name = "active_slot")
+    private Boolean activeSlot;
+
+    // 같은 예약을 동시에 바꾸는 경우(취소와 완료가 동시에 들어옴 등)를 막음
+    // 새 예약끼리의 충돌은 이 칸으로 못 막음 → 방법 C 는 Caregiver 의 version 을 사용
     @Version
     private Long version;
 
@@ -77,6 +82,7 @@ public class Reservation extends BaseTimeEntity {
         this.startTime = visitRequest.getStartTime();
         this.endTime = visitRequest.getEndTime();
         this.status = ReservationStatus.CONFIRMED;
+        this.activeSlot = Boolean.TRUE;
     }
 
     public static Reservation confirm(Caregiver caregiver, VisitRequest visitRequest) {
@@ -89,5 +95,20 @@ public class Reservation extends BaseTimeEntity {
 
     public void cancel() {
         this.status = ReservationStatus.CANCELED;
+        this.activeSlot = null;
+    }
+
+    public boolean isCanceled() {
+        return status == ReservationStatus.CANCELED;
+    }
+
+    // 취소되지 않은 예약만 보호사의 시간을 차지함
+    public boolean isActive() {
+        return !isCanceled();
+    }
+
+    // 시간대가 조금이라도 겹치는지 (10:00~12:00 과 12:00~13:00 은 안 겹침)
+    public boolean overlaps(LocalTime otherStart, LocalTime otherEnd) {
+        return startTime.isBefore(otherEnd) && endTime.isAfter(otherStart);
     }
 }

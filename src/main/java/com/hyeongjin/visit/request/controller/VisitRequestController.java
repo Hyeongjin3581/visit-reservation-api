@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-// 2주차: GET /{id}/recommendations, 3주차: POST /{id}/reservations 추가 예정
+// 추천(GET /{id}/recommendations)은 RecommendationController, 3주차: POST /{id}/reservations 추가 예정
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/visit-requests")
