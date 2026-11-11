@@ -5,6 +5,8 @@ import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import com.hyeongjin.visit.reservation.domain.Reservation;
+import com.hyeongjin.visit.reservation.dto.GroupReservationResponse;
 import com.hyeongjin.visit.reservation.dto.ReservationResponse;
 import com.hyeongjin.visit.reservation.lock.ReservationLockStrategy;
 import org.springframework.beans.factory.annotation.Value;
@@ -37,6 +39,15 @@ public class ReservationService {
 
     public ReservationResponse cancel(Long reservationId) {
         return ReservationResponse.from(writer.cancel(reservationId));
+    }
+
+    public GroupReservationResponse confirmGroup(Long groupId, Long caregiverId) {
+        return GroupReservationResponse.of(groupId, caregiverId, lockStrategy.confirmGroup(groupId, caregiverId));
+    }
+
+    public GroupReservationResponse cancelGroup(Long groupId) {
+        List<Reservation> canceled = writer.cancelGroup(groupId);
+        return GroupReservationResponse.of(groupId, canceled.get(0).getCaregiver().getId(), canceled);
     }
 
     public String strategyName() {

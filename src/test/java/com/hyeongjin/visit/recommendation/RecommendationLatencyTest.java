@@ -20,6 +20,7 @@ import com.hyeongjin.visit.recipient.repository.RecipientRepository;
 import com.hyeongjin.visit.recommendation.service.RecommendationRanker;
 import com.hyeongjin.visit.recommendation.service.RecommendationService;
 import com.hyeongjin.visit.request.domain.VisitRequest;
+import com.hyeongjin.visit.request.repository.VisitRequestGroupRepository;
 import com.hyeongjin.visit.request.repository.VisitRequestRepository;
 import com.hyeongjin.visit.reservation.domain.Reservation;
 import com.hyeongjin.visit.reservation.repository.ReservationRepository;
@@ -52,6 +53,7 @@ class RecommendationLatencyTest {
     @Autowired private CaregiverAvailabilityRepository availabilityRepository;
     @Autowired private RecipientRepository recipientRepository;
     @Autowired private VisitRequestRepository visitRequestRepository;
+    @Autowired private VisitRequestGroupRepository visitRequestGroupRepository;
     @Autowired private ReservationRepository reservationRepository;
     @PersistenceContext private EntityManager em;
 
@@ -59,6 +61,8 @@ class RecommendationLatencyTest {
     void cleanUp() {
         reservationRepository.deleteAllInBatch();
         visitRequestRepository.deleteAllInBatch();
+        // visit_request.group_id 가 묶음을 가리키므로 요청을 지운 다음에 지움
+        visitRequestGroupRepository.deleteAllInBatch();
         availabilityRepository.deleteAllInBatch();
         caregiverRepository.deleteAllInBatch();
         recipientRepository.deleteAllInBatch();

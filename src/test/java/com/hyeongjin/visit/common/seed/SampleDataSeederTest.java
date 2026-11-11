@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.hyeongjin.visit.caregiver.repository.CaregiverAvailabilityRepository;
 import com.hyeongjin.visit.caregiver.repository.CaregiverRepository;
 import com.hyeongjin.visit.recipient.repository.RecipientRepository;
+import com.hyeongjin.visit.request.repository.VisitRequestGroupRepository;
 import com.hyeongjin.visit.request.repository.VisitRequestRepository;
 import com.hyeongjin.visit.reservation.repository.ReservationRepository;
 import org.junit.jupiter.api.AfterEach;
@@ -24,12 +25,15 @@ class SampleDataSeederTest {
     @Autowired private CaregiverAvailabilityRepository availabilityRepository;
     @Autowired private RecipientRepository recipientRepository;
     @Autowired private VisitRequestRepository visitRequestRepository;
+    @Autowired private VisitRequestGroupRepository visitRequestGroupRepository;
     @Autowired private ReservationRepository reservationRepository;
 
     @AfterEach
     void cleanUp() {
         reservationRepository.deleteAllInBatch();
         visitRequestRepository.deleteAllInBatch();
+        // visit_request.group_id 가 묶음을 가리키므로 요청을 지운 다음에 지움
+        visitRequestGroupRepository.deleteAllInBatch();
         availabilityRepository.deleteAllInBatch();
         caregiverRepository.deleteAllInBatch();
         recipientRepository.deleteAllInBatch();

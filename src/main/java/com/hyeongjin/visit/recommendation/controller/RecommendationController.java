@@ -1,5 +1,6 @@
 package com.hyeongjin.visit.recommendation.controller;
 
+import com.hyeongjin.visit.recommendation.dto.GroupRecommendationResponse;
 import com.hyeongjin.visit.recommendation.dto.RecommendationResponse;
 import com.hyeongjin.visit.recommendation.service.RecommendationService;
 import lombok.RequiredArgsConstructor;
@@ -19,5 +20,12 @@ public class RecommendationController {
     public RecommendationResponse recommend(@PathVariable Long visitRequestId,
                                             @RequestParam(defaultValue = "3") int size) {
         return recommendationService.recommend(visitRequestId, size);
+    }
+
+    // 묶음 신청의 모든 날짜에 갈 수 있는 요양보호사 상위 N명 추천
+    @GetMapping("/api/visit-request-groups/{groupId}/recommendations")
+    public GroupRecommendationResponse recommendGroup(@PathVariable Long groupId,
+                                                      @RequestParam(defaultValue = "3") int size) {
+        return recommendationService.recommendGroup(groupId, size);
     }
 }

@@ -15,7 +15,9 @@ import com.hyeongjin.visit.recommendation.domain.ScoredCandidate;
 import com.hyeongjin.visit.recommendation.dto.RecommendationResponse;
 import com.hyeongjin.visit.recommendation.service.RecommendationRanker;
 import com.hyeongjin.visit.recommendation.service.RecommendationService;
+import com.hyeongjin.visit.recommendation.dto.GroupRecommendationResponse;
 import com.hyeongjin.visit.request.domain.VisitRequest;
+import com.hyeongjin.visit.request.domain.VisitRequestGroup;
 import com.hyeongjin.visit.reservation.domain.Reservation;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
@@ -67,6 +69,41 @@ class RecommendationQueryCountTest {
                 .containsExactlyElementsOf(before.stream().map(s -> s.candidate().caregiver().getId()).toList());
         assertThat(afterQueries).isLessThanOrEqualTo(6);
         assertThat(beforeQueries).isGreaterThan(caregiverCount * 3L);
+    }
+
+    // 묶음 추천: 날짜가 늘어도 요일·날짜를 IN 으로 한 번에 읽으므로 쿼리 수가 같아야 함 (온케어는 날짜 수 × 2N)
+    @ParameterizedTest(name = "날짜 {0}개")
+    @ValueSource(ints = {1, 7, 14})
+    void 묶음_추천은_날짜_수와_상관없이_쿼리_수가_일정하다(int dateCount) {
+        LocalDate today = LocalDate.now(clock);
+        int caregiverCount = 30;
+        Recipient target = Recipient.create("박수급", null, 37.5665, 126.9780);
+        em.persist(target);
+        VisitRequestGroup group = VisitRequestGroup.create(target, LocalTime.of(10, 0), LocalTime.of(12, 0));
+        em.persist(group);
+        for (int d = 1; d <= dateCount; d++) {
+            em.persist(VisitRequest.createInGroup(group, today.plusDays(d)));
+        }
+        for (int i = 0; i < caregiverCount; i++) {
+            Caregiver caregiver = Caregiver.create("보호사" + i, Gender.FEMALE, 37.5665 + i * 0.002, 126.9780);
+            em.persist(caregiver);
+            for (java.time.DayOfWeek day : java.time.DayOfWeek.values()) {
+                em.persist(CaregiverAvailability.create(caregiver, day, LocalTime.of(9, 0), LocalTime.of(18, 0)));
+            }
+            completedVisit(caregiver, target, today.minusDays(i % 25 + 1));
+        }
+        em.flush();
+        Statistics stats = emf.unwrap(SessionFactory.class).getStatistics();
+
+        em.clear();
+        stats.clear();
+        GroupRecommendationResponse response = recommendationService.recommendGroup(group.getId(), 10);
+        long queries = stats.getPrepareStatementCount();
+
+        System.out.printf("[측정] 묶음 날짜 %d개, 후보 %d명: %d회%n", dateCount, caregiverCount, queries);
+        assertThat(response.visitDates()).hasSize(dateCount);
+        assertThat(response.candidates()).hasSize(10);
+        assertThat(queries).isLessThanOrEqualTo(6);
     }
 
     // 보호사 n명이 모두 필터를 통과하도록 만들고, 보호사마다 완료 방문 2건씩 넣음

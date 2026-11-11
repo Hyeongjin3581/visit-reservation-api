@@ -1,9 +1,14 @@
 package com.hyeongjin.visit.reservation.lock;
 
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 import com.hyeongjin.visit.common.exception.BusinessException;
 import com.hyeongjin.visit.common.exception.ErrorCode;
+import com.hyeongjin.visit.request.domain.VisitRequest;
 import com.hyeongjin.visit.request.repository.VisitRequestRepository;
 import com.hyeongjin.visit.reservation.domain.Reservation;
 import com.hyeongjin.visit.reservation.service.ReservationWriter;
@@ -37,7 +42,7 @@ public class RedissonLockStrategy implements ReservationLockStrategy {
         var visitDate = visitRequestRepository.findById(visitRequestId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.VISIT_REQUEST_NOT_FOUND))
                 .getVisitDate();
-        RLock lock = redissonClient.getLock("lock:caregiver:" + caregiverId + ":" + visitDate);
+        RLock lock = redissonClient.getLock(lockKey(caregiverId, visitDate));
 
         boolean acquired;
         try {
@@ -55,5 +60,42 @@ public class RedissonLockStrategy implements ReservationLockStrategy {
         } finally {
             lock.unlock();
         }
+    }
+
+    // 묶음: 날짜마다 락 키가 다르므로 날짜별 락을 모두 잡은 뒤 한 트랜잭션으로 확정
+    @Override
+    public List<Reservation> confirmGroup(Long groupId, Long caregiverId) {
+        // 락 키에 날짜가 필요해서 먼저 읽음 (트랜잭션 밖, 확정은 writer 안에서 다시 검증)
+        List<LocalDate> dates = visitRequestRepository.findAllWithRecipientByGroupId(groupId).stream()
+                .map(VisitRequest::getVisitDate)
+                .sorted()      // 모든 요청이 같은 순서(날짜 오름차순)로 잡아야 서로 기다리는 데드락이 안 생김
+                .distinct()
+                .toList();
+        if (dates.isEmpty()) {
+            throw new BusinessException(ErrorCode.VISIT_REQUEST_GROUP_NOT_FOUND);
+        }
+        List<RLock> acquired = new ArrayList<>();
+        try {
+            for (LocalDate date : dates) {
+                RLock lock = redissonClient.getLock(lockKey(caregiverId, date));
+                if (!lock.tryLock(WAIT_SECONDS, TimeUnit.SECONDS)) {
+                    // 하나라도 못 잡으면 finally 에서 이미 잡은 것을 모두 풂
+                    throw new BusinessException(ErrorCode.RESERVATION_BUSY);
+                }
+                acquired.add(lock);
+            }
+            return writer.confirmGroup(groupId, caregiverId, LockModeType.NONE);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new BusinessException(ErrorCode.RESERVATION_BUSY);
+        } finally {
+            // 커밋이 끝난 뒤에 해제 (단건과 같은 원칙), 잡은 역순으로
+            Collections.reverse(acquired);
+            acquired.forEach(RLock::unlock);
+        }
+    }
+
+    private static String lockKey(Long caregiverId, LocalDate visitDate) {
+        return "lock:caregiver:" + caregiverId + ":" + visitDate;
     }
 }

@@ -24,7 +24,8 @@ public record RecommendationResponse(Long visitRequestId, List<CandidateResponse
             double totalScore
     ) {
 
-        static CandidateResponse from(ScoredCandidate scored) {
+        // 묶음 추천 응답(GroupRecommendationResponse)도 같은 후보 형식을 씀
+        public static CandidateResponse from(ScoredCandidate scored) {
             Candidate candidate = scored.candidate();
             Map<String, Double> rounded = new LinkedHashMap<>();
             scored.scores().forEach((name, score) -> rounded.put(name, round1(score)));

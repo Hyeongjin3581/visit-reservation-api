@@ -12,14 +12,22 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 // 추천에서 쓰는 조회는 모두 "후보 전체를 한 번에" 가져옴 (보호사마다 따로 조회하면 N+1)
-// 3주차: 락 조회 메서드 추가 예정
 public interface ReservationRepository extends JpaRepository<Reservation, Long> {
 
     long countByCaregiverIdAndVisitDateAndStartTime(Long caregiverId, LocalDate visitDate, LocalTime startTime);
 
-    // 후보들의 그날 예약 (일정 겹침 필터용)
-    List<Reservation> findByCaregiverIdInAndVisitDateAndStatusNot(
-            Collection<Long> caregiverIds, LocalDate visitDate, ReservationStatus excludedStatus);
+    // 후보들의 해당 날짜들 예약 (일정 겹침 필터·확정 재검증용)
+    // 단건은 날짜 1개, 묶음은 묶음의 날짜 전체 → 날짜가 몇 개든 쿼리 1번 (idx_reservation_caregiver_date 사용)
+    List<Reservation> findByCaregiverIdInAndVisitDateInAndStatusNot(
+            Collection<Long> caregiverIds, Collection<LocalDate> visitDates, ReservationStatus excludedStatus);
+
+    // 묶음의 살아 있는 예약 (묶음 취소용). unassign 때 지연 로딩이 없도록 요청을 함께 읽음
+    @Query("""
+            select r from Reservation r join fetch r.visitRequest v
+            where v.group.id = :groupId and r.status <> :canceled
+            """)
+    List<Reservation> findActiveByGroupId(@Param("groupId") Long groupId,
+                                          @Param("canceled") ReservationStatus canceled);
 
     // 후보별 기간 내 완료 방문 횟수 (근무량 점수용)
     @Query("""

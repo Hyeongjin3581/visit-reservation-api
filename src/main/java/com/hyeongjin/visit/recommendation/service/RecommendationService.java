@@ -2,11 +2,14 @@ package com.hyeongjin.visit.recommendation.service;
 
 import static java.util.stream.Collectors.groupingBy;
 import static java.util.stream.Collectors.toMap;
+import static java.util.stream.Collectors.toSet;
 
 import java.time.Clock;
+import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import com.hyeongjin.visit.caregiver.domain.Caregiver;
 import com.hyeongjin.visit.caregiver.domain.CaregiverAvailability;
@@ -19,6 +22,8 @@ import com.hyeongjin.visit.common.geo.GeoDistance;
 import com.hyeongjin.visit.recipient.domain.Recipient;
 import com.hyeongjin.visit.recommendation.domain.Candidate;
 import com.hyeongjin.visit.recommendation.domain.CaregiverSchedule;
+import com.hyeongjin.visit.recommendation.domain.ScoredCandidate;
+import com.hyeongjin.visit.recommendation.dto.GroupRecommendationResponse;
 import com.hyeongjin.visit.recommendation.dto.RecommendationResponse;
 import com.hyeongjin.visit.recommendation.filter.CandidateFilter;
 import com.hyeongjin.visit.request.domain.VisitRequest;
@@ -31,7 +36,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-// 추천 흐름: 요청 조회 → 1차 후보(DB) → 필터 → 점수 → 상위 N명
+// 추천 흐름 (단건·묶음 공통): 요청 조회 → 1차 후보(DB) → 필터 → 점수 → 상위 N명
 // 쿼리는 후보 수와 상관없이 최대 6번 (요청 1 + 보호사 1 + 근무 가능 시간 1 + 그날 예약 1 + 근무량 집계 1 + 연속 담당 집계 1)
 @Service
 @RequiredArgsConstructor
@@ -50,34 +55,60 @@ public class RecommendationService {
     private final Clock clock;
 
     public RecommendationResponse recommend(Long visitRequestId, int size) {
+        validateSize(size);
+        VisitRequest request = visitRequestRepository.findWithRecipientById(visitRequestId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.VISIT_REQUEST_NOT_FOUND));
+        requireAssignable(List.of(request));
+        // 단건은 크기 1인 목록으로 묶음과 같은 경로를 탐
+        return RecommendationResponse.of(request.getId(), rank(List.of(request), request.getRecipient(), size));
+    }
+
+    // 묶음: 모든 날짜에 갈 수 있는 보호사만 추천. 쿼리는 날짜 수와 상관없이 6번 (요청 조회가 묶음 하위 요청 조회로 바뀔 뿐)
+    public GroupRecommendationResponse recommendGroup(Long groupId, int size) {
+        validateSize(size);
+        List<VisitRequest> requests = visitRequestRepository.findAllWithRecipientByGroupId(groupId);
+        if (requests.isEmpty()) {
+            throw new BusinessException(ErrorCode.VISIT_REQUEST_GROUP_NOT_FOUND);
+        }
+        // 하나라도 이미 배정·취소됐으면 "묶음 전체를 한 보호사에게"가 성립하지 않음
+        requireAssignable(requests);
+        List<LocalDate> dates = requests.stream().map(VisitRequest::getVisitDate).toList();
+        return GroupRecommendationResponse.of(groupId, dates, rank(requests, requests.get(0).getRecipient(), size));
+    }
+
+    private List<ScoredCandidate> rank(List<VisitRequest> requests, Recipient recipient, int size) {
+        List<Caregiver> passed = filterCandidates(requests, recipient);
+        return ranker.rank(toCandidates(recipient, passed), size);
+    }
+
+    private void validateSize(int size) {
         if (size < 1 || size > MAX_SIZE) {
             throw new BusinessException(ErrorCode.INVALID_RECOMMENDATION_SIZE);
         }
-        VisitRequest request = visitRequestRepository.findWithRecipientById(visitRequestId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.VISIT_REQUEST_NOT_FOUND));
-        if (!request.isAssignable()) {
-            throw new BusinessException(ErrorCode.VISIT_REQUEST_NOT_ASSIGNABLE);
-        }
-
-        List<Caregiver> passed = filterCandidates(request);
-        List<Candidate> candidates = toCandidates(request.getRecipient(), passed);
-        return RecommendationResponse.of(request.getId(), ranker.rank(candidates, size));
     }
 
-    // 필수 조건 통과자
-    private List<Caregiver> filterCandidates(VisitRequest request) {
-        List<Caregiver> caregivers = findActiveCaregivers(request.getRecipient());
+    private void requireAssignable(List<VisitRequest> requests) {
+        if (!requests.stream().allMatch(VisitRequest::isAssignable)) {
+            throw new BusinessException(ErrorCode.VISIT_REQUEST_NOT_ASSIGNABLE);
+        }
+    }
+
+    // 필수 조건 통과자: 모든 요청(날짜)에 대해 필터를 통과해야 함
+    private List<Caregiver> filterCandidates(List<VisitRequest> requests, Recipient recipient) {
+        List<Caregiver> caregivers = findActiveCaregivers(recipient);
         if (caregivers.isEmpty()) {
             return List.of();
         }
         List<Long> ids = caregivers.stream().map(Caregiver::getId).toList();
+        Set<DayOfWeek> days = requests.stream().map(request -> request.getVisitDate().getDayOfWeek()).collect(toSet());
+        Set<LocalDate> dates = requests.stream().map(VisitRequest::getVisitDate).collect(toSet());
 
-        // 후보 전체의 근무 가능 시간·그날 예약을 한 번씩만 조회한 뒤 보호사별로 나눔
+        // 후보 전체의 근무 가능 시간·해당 날짜 예약을 한 번씩만 조회한 뒤 보호사별로 나눔 (요일·날짜가 몇 개든 IN 조회 1번씩)
         Map<Long, List<CaregiverAvailability>> availabilities = availabilityRepository
-                .findByCaregiverIdInAndDayOfWeek(ids, request.getVisitDate().getDayOfWeek()).stream()
+                .findByCaregiverIdInAndDayOfWeekIn(ids, days).stream()
                 .collect(groupingBy(availability -> availability.getCaregiver().getId()));
         Map<Long, List<Reservation>> reservations = reservationRepository
-                .findByCaregiverIdInAndVisitDateAndStatusNot(ids, request.getVisitDate(), ReservationStatus.CANCELED).stream()
+                .findByCaregiverIdInAndVisitDateInAndStatusNot(ids, dates, ReservationStatus.CANCELED).stream()
                 .collect(groupingBy(reservation -> reservation.getCaregiver().getId()));
 
         return caregivers.stream()
@@ -86,7 +117,9 @@ public class RecommendationService {
                             caregiver,
                             availabilities.getOrDefault(caregiver.getId(), List.of()),
                             reservations.getOrDefault(caregiver.getId(), List.of()));
-                    return filters.stream().allMatch(filter -> filter.accept(schedule, request));
+                    // 필터들은 요청의 요일·날짜로 먼저 거르므로, 여러 날짜 데이터가 섞인 schedule 을 그대로 넘겨도 됨
+                    return requests.stream().allMatch(request ->
+                            filters.stream().allMatch(filter -> filter.accept(schedule, request)));
                 })
                 .toList();
     }

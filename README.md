@@ -80,6 +80,11 @@ k6 run -e STRATEGY=pessimistic k6/reservation.js     # 예약 확정 처리량 (
 | GET | `/api/visit-requests/{id}/recommendations?size=3` | 요양보호사 추천 (상위 N명, 최대 10명) |
 | POST | `/api/visit-requests/{id}/reservations` | 예약 확정 (body: `{"caregiverId": 1}`) |
 | DELETE | `/api/reservations/{id}` | 예약 취소 (상태만 `CANCELED`, 요청은 다시 배정 대기) |
+| POST | `/api/visit-request-groups` | 묶음 신청 등록 (같은 시간대로 여러 날짜, 최대 14일) |
+| GET | `/api/visit-request-groups/{id}` | 묶음 신청 조회 (날짜별 하위 요청 포함) |
+| GET | `/api/visit-request-groups/{id}/recommendations?size=3` | 모든 날짜에 갈 수 있는 요양보호사 추천 |
+| POST | `/api/visit-request-groups/{id}/reservations` | 묶음 일괄 확정 (body: `{"caregiverId": 1}`, 한 날짜라도 안 되면 전부 실패) |
+| DELETE | `/api/visit-request-groups/{id}/reservations` | 묶음 일괄 취소 |
 
 에러 응답은 모두 같은 형식입니다.
 ```json
@@ -99,6 +104,8 @@ k6 run -e STRATEGY=pessimistic k6/reservation.js     # 예약 확정 처리량 (
 2. 추천 때와 같은 필터로 다시 검증 (근무 상태, 성별, 근무 가능 시간, 겹치는 예약)
 3. 예약 저장 + 방문 요청 `ASSIGNED`
 4. 같은 시작 시간 중복은 DB 유니크 제약이 한 번 더 막음
+
+묶음 신청은 같은 흐름을 날짜 목록으로 넓혔습니다. 추천은 모든 날짜의 필터를 통과한 보호사만 남기고(쿼리는 날짜 수와 상관없이 6회), 확정은 트랜잭션 하나에서 보호사를 한 번 잠그고 모든 날짜를 다시 검증한 뒤 한꺼번에 저장합니다. 한 날짜라도 실패하면 전부 롤백됩니다. ([docs/oncare-review.md](docs/oncare-review.md) 4절)
 
 ## 트러블슈팅 ① 동시 확정 시 중복 배정
 
@@ -144,7 +151,7 @@ k6 run -e STRATEGY=pessimistic k6/reservation.js     # 예약 확정 처리량 (
 
 - k6 스크립트(`k6/`)는 준비했지만 아직 실행해서 수치를 기록하지 않았습니다. 배포(EC2)도 하지 않았습니다.
 - 비관적 락은 보호사 단위라서 같은 보호사의 다른 날짜 예약끼리도 기다립니다.
-- 묶음 신청(여러 날짜를 한 번에 신청)은 아직 가져오지 않았습니다.
+- 묶음 신청은 모든 날짜가 같은 시간대이고 같은 보호사일 때만 지원합니다. 날짜별 시간대, 날짜별로 다른 보호사 배정은 하지 않습니다.
 
 ## 문서
 - [docs/oncare-review.md](docs/oncare-review.md) — 온케어 코드 검토: 가져온 것, 고친 것, 측정

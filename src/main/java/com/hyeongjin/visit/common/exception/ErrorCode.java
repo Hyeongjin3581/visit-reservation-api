@@ -14,10 +14,13 @@ public enum ErrorCode {
     INVALID_TIME_RANGE(HttpStatus.BAD_REQUEST, "시작 시간은 종료 시간보다 빨라야 합니다."),
     INVALID_TIME_SLOT(HttpStatus.BAD_REQUEST, "시간은 30분 단위로 입력해야 합니다."),
     INVALID_RECOMMENDATION_SIZE(HttpStatus.BAD_REQUEST, "추천 인원은 1명 이상 10명 이하로 요청해야 합니다."),
+    // 묶음 신청에 같은 날짜가 두 번 오면 같은 보호사에게 스스로 겹치는 예약을 만들게 됨
+    DUPLICATE_VISIT_DATE(HttpStatus.BAD_REQUEST, "같은 날짜를 두 번 신청할 수 없습니다."),
 
     CAREGIVER_NOT_FOUND(HttpStatus.NOT_FOUND, "요양보호사를 찾을 수 없습니다."),
     RECIPIENT_NOT_FOUND(HttpStatus.NOT_FOUND, "수급자를 찾을 수 없습니다."),
     VISIT_REQUEST_NOT_FOUND(HttpStatus.NOT_FOUND, "방문 요청을 찾을 수 없습니다."),
+    VISIT_REQUEST_GROUP_NOT_FOUND(HttpStatus.NOT_FOUND, "묶음 신청을 찾을 수 없습니다."),
     RESERVATION_NOT_FOUND(HttpStatus.NOT_FOUND, "예약을 찾을 수 없습니다."),
 
     // 이미 배정됐거나 취소된 요청은 추천하지 않음 (온케어는 빈 목록을 돌려줘서 원인을 알 수 없었음)

@@ -1,5 +1,8 @@
 package com.hyeongjin.visit.reservation.lock;
 
+import java.util.List;
+import java.util.function.Supplier;
+
 import com.hyeongjin.visit.common.exception.BusinessException;
 import com.hyeongjin.visit.common.exception.ErrorCode;
 import com.hyeongjin.visit.reservation.domain.Reservation;
@@ -29,9 +32,19 @@ public class OptimisticLockStrategy implements ReservationLockStrategy {
 
     @Override
     public Reservation confirm(Long visitRequestId, Long caregiverId) {
+        return retry(() -> writer.confirm(visitRequestId, caregiverId, LockModeType.OPTIMISTIC_FORCE_INCREMENT));
+    }
+
+    // 묶음이 충돌하면 묶음 전체를 새 트랜잭션으로 다시 시도 (앞 시도는 통째로 롤백됐으므로 부분 저장 없음)
+    @Override
+    public List<Reservation> confirmGroup(Long groupId, Long caregiverId) {
+        return retry(() -> writer.confirmGroup(groupId, caregiverId, LockModeType.OPTIMISTIC_FORCE_INCREMENT));
+    }
+
+    private <T> T retry(Supplier<T> action) {
         for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
             try {
-                return writer.confirm(visitRequestId, caregiverId, LockModeType.OPTIMISTIC_FORCE_INCREMENT);
+                return action.get();
             } catch (ConcurrencyFailureException e) {
                 log.debug("낙관적 락 충돌, 재시도 {}/{}", attempt, MAX_ATTEMPTS);
             }

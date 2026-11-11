@@ -55,4 +55,18 @@ class RedissonConcurrencyTest extends ConcurrencyTestSupport {
         assertThat(result.success()).isEqualTo(1);
         assertThat(result.overlappingPairs()).isZero();
     }
+
+    // 묶음: 날짜별 락을 날짜 오름차순으로 모두 잡음 → 날짜 조합이 서로 달라도 데드락 없이 1개만 성공
+    @Test
+    void 서로_겹치는_묶음_21개도_1개만_성공하고_부분_저장이_없다() throws Exception {
+        Caregiver caregiver = allWeekCaregiver("김보호");
+        List<Long> groupIds = overlappingGroups(21);
+
+        Result result = runConcurrently(groupIds, id -> strategy.confirmGroup(id, caregiver.getId()));
+        print("redisson", "겹치는 묶음", result);
+
+        assertThat(result.success()).isEqualTo(1);
+        assertThat(result.savedReservations()).isEqualTo(2);
+        assertThat(result.overlappingPairs()).isZero();
+    }
 }

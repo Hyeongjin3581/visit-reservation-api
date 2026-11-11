@@ -1,5 +1,7 @@
 package com.hyeongjin.visit.reservation.lock;
 
+import java.util.List;
+
 import com.hyeongjin.visit.reservation.domain.Reservation;
 import com.hyeongjin.visit.reservation.service.ReservationWriter;
 import jakarta.persistence.LockModeType;
@@ -22,5 +24,10 @@ public class UniqueConstraintStrategy implements ReservationLockStrategy {
     @Override
     public Reservation confirm(Long visitRequestId, Long caregiverId) {
         return writer.confirm(visitRequestId, caregiverId, LockModeType.NONE);
+    }
+
+    @Override
+    public List<Reservation> confirmGroup(Long groupId, Long caregiverId) {
+        return writer.confirmGroup(groupId, caregiverId, LockModeType.NONE);
     }
 }
