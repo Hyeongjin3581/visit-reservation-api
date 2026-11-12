@@ -8,9 +8,10 @@ import com.hyeongjin.visit.reservation.service.ReservationWriter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
-// B'. 보호사 행 전체를 SELECT ... FOR UPDATE 로 잠금 (범위 축소 전의 방법 B)
+// B'. 보호사 행 전체를 SELECT ... FOR UPDATE 로 잠금 (기본값, 범위 축소 전의 방법 B)
 // 같은 보호사에 대한 확정은 날짜가 달라도 모두 한 줄로 섬
-// 기본값(pessimistic)과 전후를 비교하려고 남겨 둠: LockScopeTest, k6 (RESERVATION_LOCK_STRATEGY=pessimistic-caregiver)
+// 날짜 락(pessimistic)보다 경합이 낮은 k6 부하에서 약 30% 빨라서 기본값으로 씀 (README "k6 부하 테스트")
+// 락 범위 차이는 LockScopeTest 가 보여 줌: 이 방식은 같은 보호사의 다른 날짜 확정도 기다리게 함
 @Component
 @RequiredArgsConstructor
 public class CaregiverRowLockStrategy implements ReservationLockStrategy {

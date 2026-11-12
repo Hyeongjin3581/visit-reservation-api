@@ -150,10 +150,14 @@ public class ReservationWriter {
     // (보호사, 날짜) 잠금 행을 날짜 오름차순으로 한 행씩 잠금
     // 모든 트랜잭션이 같은 순서로 잡으므로, 날짜 조합이 다른 묶음끼리 서로 기다리는 데드락이 생기지 않음
     private void lockDays(Long caregiverId, List<VisitRequest> requests) {
-        requests.stream().map(VisitRequest::getVisitDate).sorted().distinct().forEach(date ->
-                dayLockRepository.findForUpdate(caregiverId, date).orElseThrow(() ->
-                        // 잠글 행이 없으면 락 없이 진행하게 되므로 조용히 넘어가지 않음
-                        new IllegalStateException("잠금 행이 없습니다. CaregiverDayLocks.prepare 를 먼저 호출해야 합니다")));
+        List<LocalDate> dates = requests.stream().map(VisitRequest::getVisitDate).sorted().distinct().toList();
+        for (LocalDate date : dates) {
+            if (dayLockRepository.findForUpdate(caregiverId, date).isEmpty()) {
+                // 처음 확정하는 (보호사, 날짜). 잠글 행이 없으면 락 없이 진행하게 되므로 여기서 멈춤
+                // 아직 쓰기 전이라 롤백할 것이 없음 → 전략이 트랜잭션 밖에서 행을 만들고 다시 시도
+                throw new MissingDayLockException(caregiverId, dates);
+            }
+        }
     }
 
     // 요일·날짜 목록으로 한 번씩 조회 (단건이면 목록 크기 1)

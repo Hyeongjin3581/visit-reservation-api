@@ -18,10 +18,11 @@ spring:
         # 2주차 N+1 측정 때 true 로 바꿔 쿼리 수 확인
         generate_statistics: false
 
-# 예약 확정 동시성 제어 방법: unique(A) / pessimistic(B, 기본) / pessimistic-caregiver(B', 비교용) / optimistic(C) / redisson(D)
+# 예약 확정 동시성 제어 방법: unique(A) / pessimistic(B) / pessimistic-caregiver(B', 기본) / optimistic(C) / redisson(D)
 reservation:
   lock:
-    strategy: ${RESERVATION_LOCK_STRATEGY:pessimistic}
+    # 기본값은 보호사 행 락(B'): k6 에서 (보호사, 날짜) 락(B)보다 빨랐음 (README "k6 부하 테스트")
+    strategy: ${RESERVATION_LOCK_STRATEGY:pessimistic-caregiver}
   # redisson 을 쓰려면 true 로 바꾸고 Redis 를 띄움 (docker compose up -d redis)
   redis:
     enabled: ${REDIS_ENABLED:false}

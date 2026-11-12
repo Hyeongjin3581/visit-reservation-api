@@ -24,7 +24,7 @@ public class CaregiverDayLocks {
     private final CaregiverDayLockRepository dayLockRepository;
     private final CaregiverRepository caregiverRepository;
 
-    // 확정 트랜잭션 "밖"에서 호출 (전략이 writer 를 부르기 전)
+    // 확정 트랜잭션 "밖"에서 호출: 확정 중 잠금 행이 없어 롤백된 뒤 (처음 확정하는 날짜에서만)
     // 새 트랜잭션(REQUIRES_NEW)을 열지 않음: 트랜잭션 안에서 새 트랜잭션으로 만들면 요청 하나가 커넥션을 2개 쥐고,
     // 동시 요청이 커넥션 풀보다 많으면 모두가 두 번째 커넥션을 기다리며 멈춤 (풀 고갈)
     // 이미 트랜잭션이 있으면 그 트랜잭션에 합류해서 만듦 (커넥션을 새로 잡지 않음)

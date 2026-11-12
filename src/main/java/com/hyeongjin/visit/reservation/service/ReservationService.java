@@ -21,7 +21,7 @@ public class ReservationService {
     private final ReservationWriter writer;
 
     public ReservationService(List<ReservationLockStrategy> strategies,
-                              @Value("${reservation.lock.strategy:pessimistic}") String strategyName,
+                              @Value("${reservation.lock.strategy:pessimistic-caregiver}") String strategyName,
                               ReservationWriter writer) {
         Map<String, ReservationLockStrategy> byName = strategies.stream()
                 .collect(Collectors.toMap(ReservationLockStrategy::name, Function.identity()));
